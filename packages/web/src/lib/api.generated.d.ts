@@ -2383,6 +2383,8 @@ export interface paths {
           until?: string;
           limit?: number | null;
           after?: string;
+          /** @description Keep only the open items (true: standing.state is not resting) or only the ones at rest (false). Name it on every page; the cursor does not carry it. */
+          open?: 'true' | 'false';
         };
         header?: never;
         path?: never;
@@ -5952,7 +5954,10 @@ export interface components {
     CancelConversationResponse: {
       cancelled: boolean;
     };
-    CodebaseListResponse: components['schemas']['Codebase'][];
+    CodebaseListResponse: (components['schemas']['Codebase'] & {
+      /** @description The keys of the workflow packs with a run on an item of this project, as GET /api/packs/{pack}/graph takes them. Empty when the project has no item on a pack stage. */
+      item_packs: string[];
+    })[];
     Codebase: {
       id: string;
       name: string;
@@ -8195,6 +8200,11 @@ export interface components {
         projectKey: string;
         key: string;
       };
+      standing: {
+        runId: string | null;
+        /** @enum {string} */
+        state: 'running' | 'waiting' | 'queued' | 'failed' | 'resting';
+      };
       runs: {
         id: string;
         workflow: string;
@@ -8870,6 +8880,11 @@ export interface components {
           id: string;
           projectKey: string;
           key: string;
+        };
+        standing: {
+          runId: string | null;
+          /** @enum {string} */
+          state: 'running' | 'waiting' | 'queued' | 'failed' | 'resting';
         };
         runs: {
           id: string;
@@ -11299,6 +11314,7 @@ export interface components {
       }[];
       stages: {
         name: string;
+        workflow: string;
         returns: string | null;
         outcome: {
           field: string;

@@ -56,6 +56,11 @@ const packGraphNodeSchema = z.object({
 
 const packGraphStageSchema = z.object({
   name: z.string(),
+  /**
+   * The stage's name within the pack: its authored `name:`, which a run of the stage
+   * records as `pack.workflow` (`runPack`). Match a run to its stage by this and the pack key.
+   */
+  workflow: z.string(),
   /** The returns node's id after include expansion, or null when the stage returns nothing. */
   returns: z.string().nullable(),
   outcome: z
@@ -181,6 +186,7 @@ export const packGraphSchema = z.object({
    * `<owner>.<name>` beside a project pack `<name>`. Naming that key reads that copy.
    */
   otherCopies: z.array(packCopySchema),
+  /** In the order work flows through them: see `inFlowOrder`. */
   stages: z.array(packGraphStageSchema),
   arrows: z.array(packGraphArrowSchema),
   /** The body of each fan-out include a stage or another body names, once per workflow. */
@@ -369,7 +375,7 @@ export interface InstalledArrow {
   problems: readonly string[];
 }
 
-type Stage = Pick<ResolvedWorkflow, 'name' | 'returns' | 'result' | 'nodes'>;
+type Stage = Pick<ResolvedWorkflow, 'name' | 'returns' | 'result' | 'nodes' | 'pack'>;
 type GraphNode = PackGraph['stages'][number]['nodes'][number];
 
 /**
@@ -571,11 +577,44 @@ function graphStage(stage: Stage, started: ReadonlySet<string>): PackGraph['stag
   }
   return {
     name: stage.name,
+    workflow: stage.pack?.workflow ?? stage.name,
     returns: stage.returns ?? null,
     outcome,
     asks: stage.result?.asks !== undefined,
     nodes: stageNodes(stage),
   };
+}
+
+/**
+ * The stages in the order work flows through them, which the pack declares nowhere else:
+ * breadth-first along the outcome arrows, from the stages the pack's timer, event and fire
+ * bindings start, then from each stage no arrow leads to, then from each one only an
+ * answer leads to, then from any stage still unplaced. Arrows keep the order the pack
+ * declares its bindings in, so the order changes only when the pack does.
+ */
+function inFlowOrder(input: GraphInput, arrows: readonly PackGraphArrow[]): Stage[] {
+  const names = input.stages.map(stage => stage.name);
+  const entries = Object.values(input.declared ?? {}).flatMap(binding =>
+    declaredFrom(binding) === undefined ? [packWorkflowName(names, binding.workflow)] : []
+  );
+  const led = (outcomeOnly: boolean): string[] => {
+    const to = arrows
+      .filter(arrow => arrow.from.stage !== arrow.to && (!outcomeOnly || 'outcome' in arrow.from))
+      .map(arrow => arrow.to);
+    return names.filter(name => !to.includes(name));
+  };
+  const next = (stage: string): string[] =>
+    arrows.filter(({ from }) => from.stage === stage && 'outcome' in from).map(arrow => arrow.to);
+  const ordered = new Set<string>();
+  for (const root of [...entries, ...led(false), ...led(true), ...names]) {
+    const pending = [root];
+    for (let name = pending.shift(); name !== undefined; name = pending.shift()) {
+      if (ordered.has(name) || !names.includes(name)) continue;
+      ordered.add(name);
+      pending.push(...next(name));
+    }
+  }
+  return [...ordered].flatMap(name => input.stages.find(stage => stage.name === name) ?? []);
 }
 
 /**
@@ -593,7 +632,7 @@ export function buildPackGraph(input: GraphInput): Omit<PackGraph, 'loaded' | 'o
   );
   return {
     pack: input.packKey,
-    stages: input.stages.map(stage => graphStage(stage, started)),
+    stages: inFlowOrder(input, arrows).map(stage => graphStage(stage, started)),
     arrows,
     fanOutBlocks: fanOutBlocks(input.stages, input.workflows),
     discoveryErrors: input.discoveryErrors.map(e => ({

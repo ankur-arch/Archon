@@ -2188,6 +2188,10 @@ declare module 'archon:script' {
       readonly projectKey: string;
       readonly key: string;
     };
+    readonly standing: {
+      readonly runId: string | null;
+      readonly state: 'running' | 'waiting' | 'queued' | 'failed' | 'resting';
+    };
     readonly runs: ReadonlyArray<{
       readonly id: string;
       readonly workflow: string;
@@ -2723,6 +2727,10 @@ declare module 'archon:script' {
         readonly id: string;
         readonly projectKey: string;
         readonly key: string;
+      };
+      readonly standing: {
+        readonly runId: string | null;
+        readonly state: 'running' | 'waiting' | 'queued' | 'failed' | 'resting';
       };
       readonly runs: ReadonlyArray<{
         readonly id: string;
